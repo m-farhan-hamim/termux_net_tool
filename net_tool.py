@@ -50,7 +50,7 @@ class NetworkTool:
     def banner(self):
         print(Fore.CYAN + Style.BRIGHT + """
     ╔════════════════════════════════════════╗
-    ║        TERMUX NETWORK CONNECT V5       ║
+    ║        TERMUX NETWORK CONNECT V7       ║
     ║        [ BD Edition - TP-Link ]        ║
     ╚════════════════════════════════════════╝
     """ + Style.RESET_ALL)
@@ -101,6 +101,13 @@ class NetworkTool:
             self.gateway_ip = "Error"
         return self.gateway_ip
 
+    def get_isp_info(self):
+        try:
+            response = requests.get('http://ip-api.com/json/', timeout=5)
+            return response.json()
+        except:
+            return None
+
     def update_tool(self):
         print(Fore.YELLOW + "\n[*] Checking for updates from the Cloud (GitHub)...")
         try:
@@ -142,6 +149,131 @@ class NetworkTool:
         except KeyboardInterrupt:
             pass
 
+    def show_network_info(self):
+        """Displays ISP and Gateway Info."""
+        print(Fore.YELLOW + "\n[*] Gathering Intelligence...")
+        
+        # 1. Admin Panel IP
+        gw = self.get_gateway_ip()
+        print(Fore.CYAN + f"[-] Admin Panel IP (Gateway): {Fore.WHITE}{gw}")
+        
+        # 2. ISP Info
+        data = self.get_isp_info()
+        if data:
+            print(Fore.CYAN + f"[-] Public IP:    {Fore.WHITE}{data.get('query')}")
+            print(Fore.CYAN + f"[-] ISP Name:     {Fore.WHITE}{data.get('isp')}")
+            print(Fore.CYAN + f"[-] Location:     {Fore.WHITE}{data.get('city')}, {data.get('country')}")
+        else:
+            print(Fore.RED + "[-] Could not fetch ISP info (Check internet).")
+            
+        input(Fore.YELLOW + "\nPress Enter to return...")
+
+    def scan_devices(self):
+        """Scans local network for devices."""
+        print(Fore.YELLOW + "\n[*] Scanning Local Network (Shadow Clone Jutsu)...")
+        
+        gw = self.get_gateway_ip()
+        if gw in ["Unknown", "Error", "Not Found"]:
+            print(Fore.RED + "[-] Gateway not found. Cannot scan.")
+            return
+
+        subnet = ".".join(gw.split('.')[:-1]) + "."
+        active_devices = []
+
+        def ping_host(ip):
+            try:
+                subprocess.check_output(
+                    ["ping", "-c", "1", "-W", "1", ip], 
+                    stdout=subprocess.DEVNULL, 
+                    stderr=subprocess.DEVNULL
+                )
+                active_devices.append(ip)
+                sys.stdout.write(Fore.GREEN + ".")
+                sys.stdout.flush()
+            except:
+                pass
+
+        threads = []
+        print(Fore.CYAN + f"Scanning {subnet}1 to {subnet}50 ...")
+        for i in range(1, 51): 
+            ip = f"{subnet}{i}"
+            if ip == gw: continue 
+            t = threading.Thread(target=ping_host, args=(ip,))
+            t.start()
+            threads.append(t)
+            time.sleep(0.01)
+
+        for t in threads:
+            t.join()
+        
+        print(Fore.GREEN + "\n\n[+] Scan Complete.")
+        if active_devices:
+            print(Fore.WHITE + f"Found {len(active_devices)} devices:")
+            for device in active_devices:
+                print(Fore.CYAN + f"  - {device}")
+        else:
+            print(Fore.RED + "[-] No other devices found in range.")
+        input(Fore.YELLOW + "\nPress Enter to return...")
+
+    def scan_ports(self):
+        """Active Port Scanner (Byakugan)."""
+        print(Fore.YELLOW + "\n[*] Active Port Scanner (Byakugan Mode)")
+        target = input("Target IP (Press Enter for Gateway): ").strip()
+        
+        if not target:
+            self.get_gateway_ip()
+            target = self.gateway_ip
+            if target in ["Unknown", "Error", "Not Found"]:
+                print(Fore.RED + "[-] Gateway not found. Please enter IP manually.")
+                return
+
+        print(Fore.CYAN + f"[*] Scanning common ports on {target}...")
+        
+        # List of common ports to scan
+        common_ports = {
+            21: "FTP", 22: "SSH", 23: "Telnet", 53: "DNS", 
+            80: "HTTP", 443: "HTTPS", 445: "SMB", 3306: "MySQL", 
+            3389: "RDP", 8080: "HTTP Proxy", 8000: "Alt HTTP"
+        }
+        
+        open_ports = []
+
+        def check_port(port, service_name):
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(0.5) # Fast timeout
+                result = s.connect_ex((target, port))
+                if result == 0:
+                    open_ports.append(f"{port} ({service_name})")
+                    sys.stdout.write(Fore.GREEN + "!")
+                else:
+                    sys.stdout.write(Fore.RED + ".")
+                sys.stdout.flush()
+                s.close()
+            except:
+                pass
+
+        threads = []
+        for port, service in common_ports.items():
+            t = threading.Thread(target=check_port, args=(port, service))
+            t.start()
+            threads.append(t)
+            # Small delay to keep thread launch orderly
+            time.sleep(0.05) 
+
+        for t in threads:
+            t.join()
+
+        print(Fore.GREEN + "\n\n[+] Port Scan Complete.")
+        if open_ports:
+            print(Fore.WHITE + "Open Ports Found:")
+            for p in open_ports:
+                print(Fore.GREEN + f"  [+] Port {p} is OPEN")
+        else:
+            print(Fore.RED + "[-] No common open ports found.")
+        
+        input(Fore.YELLOW + "\nPress Enter to return...")
+
     def packet_sender(self):
         print(Fore.YELLOW + "\n[*] Packet Sender (Data Transmission Test)")
         target = input("Target Domain/IP (e.g., google.com): ").strip()
@@ -170,6 +302,7 @@ class NetworkTool:
             print(Fore.GREEN + f"[+] Sent in {duration:.2f}s | Speed: {size_mb / duration:.2f} MB/s")
         except Exception as e:
             print(Fore.RED + f"[-] Failed: {e}")
+        input(Fore.YELLOW + "\nPress Enter to return...")
 
     def fetch_router_logs(self):
         self.get_gateway_ip()
@@ -201,6 +334,7 @@ class NetworkTool:
                 print(Fore.RED + f"[-] Failed. Code: {r.status_code}")
         except Exception as e:
             print(Fore.RED + f"[-] Error: {e}")
+        input(Fore.YELLOW + "\nPress Enter to return...")
 
     def hacker_mode(self):
         """Toy feature: Plays a hacker animation."""
@@ -226,14 +360,11 @@ class NetworkTool:
             while time.time() < end_time:
                 action = random.choice([1, 2, 3])
                 if action == 1:
-                    # Print fake hex dump
                     hex_str = " ".join([f"{random.randint(0, 255):02X}" for _ in range(8)])
                     print(Fore.GREEN + f"0x{random.randint(1000, 9999)}: {hex_str} | ...")
                 elif action == 2:
-                    # Print fake command
                     print(Fore.WHITE + f"[*] {random.choice(phrases)}")
                 else:
-                    # Print binary
                     print(Fore.CYAN + "".join([str(random.randint(0, 1)) for _ in range(40)]))
                 
                 time.sleep(random.uniform(0.05, 0.3))
@@ -257,26 +388,36 @@ class NetworkTool:
                 if cmd == "connect":
                     self.start_background_monitor()
                     while True:
+                        self.clear_screen()
+                        self.banner()
                         print(Fore.GREEN + "\n[ System Connected ]")
-                        print(Fore.WHITE + "1. Live Stats")
-                        print(Fore.WHITE + "2. Packet Sender")
-                        print(Fore.WHITE + "3. Router Logs")
-                        print(Fore.WHITE + "4. Disconnect")
-                        print(Fore.YELLOW + "5. Update Tool")
-                        print(Fore.MAGENTA + "6. Hacker Mode (Toy)")
+                        print(Fore.WHITE + "1. Live Stats (Ping)")
+                        print(Fore.WHITE + "2. Network Info (ISP & Admin IP)")
+                        print(Fore.WHITE + "3. Device Scanner")
+                        print(Fore.WHITE + "4. Active Port Scanner (Byakugan)") # New
+                        print(Fore.WHITE + "5. Packet Sender")
+                        print(Fore.WHITE + "6. Router Logs")
+                        print(Fore.WHITE + "7. Hacker Mode (Toy)")
+                        print(Fore.WHITE + "8. Update Tool")
+                        print(Fore.WHITE + "9. Disconnect")
                         
-                        choice = input(Fore.YELLOW + "Select > " + Fore.RESET)
+                        choice = input(Fore.YELLOW + "\nSelect Option > " + Fore.RESET)
                         
                         if choice == "1": self.display_stats()
-                        elif choice == "2": self.packet_sender()
-                        elif choice == "3": self.fetch_router_logs()
-                        elif choice == "4":
+                        elif choice == "2": self.show_network_info()
+                        elif choice == "3": self.scan_devices()
+                        elif choice == "4": self.scan_ports() # New Feature
+                        elif choice == "5": self.packet_sender()
+                        elif choice == "6": self.fetch_router_logs()
+                        elif choice == "7": self.hacker_mode()
+                        elif choice == "8": self.update_tool()
+                        elif choice == "9":
                             self.stop_background_monitor()
                             print(Fore.RED + "[*] Disconnected.")
                             break
-                        elif choice == "5": self.update_tool()
-                        elif choice == "6": self.hacker_mode()
-                        else: print("Invalid option.")
+                        else: 
+                            print("Invalid option.")
+                            time.sleep(1)
 
                 elif cmd == "exit":
                     if self.bg_monitor_active: self.stop_background_monitor()
