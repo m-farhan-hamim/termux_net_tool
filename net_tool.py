@@ -50,8 +50,8 @@ class NetworkTool:
     def banner(self):
         print(Fore.CYAN + Style.BRIGHT + """
     ╔════════════════════════════════════════╗
-    ║        TERMUX NETWORK CONNECT V7       ║
-    ║        [ BD Edition - TP-Link ]        ║
+    ║        TERMUX NETWORK CONNECT V8       ║
+    ║        [ BD Edition - Stable ]         ║
     ╚════════════════════════════════════════╝
     """ + Style.RESET_ALL)
 
@@ -91,14 +91,17 @@ class NetworkTool:
     # --- Utilities ---
     def get_gateway_ip(self):
         try:
+            # Method 1: ip route
             result = subprocess.check_output(["ip", "route"], text=True)
             match = re.search(r'default via (\d+\.\d+\.\d+\.\d+)', result)
             if match:
                 self.gateway_ip = match.group(1)
-            else:
-                self.gateway_ip = "Not Found"
+                return self.gateway_ip
         except:
-            self.gateway_ip = "Error"
+            pass
+        
+        # Method 2: Fallback
+        self.gateway_ip = "Unknown"
         return self.gateway_ip
 
     def get_isp_info(self):
@@ -173,12 +176,23 @@ class NetworkTool:
         print(Fore.YELLOW + "\n[*] Scanning Local Network (Shadow Clone Jutsu)...")
         
         gw = self.get_gateway_ip()
-        if gw in ["Unknown", "Error", "Not Found"]:
-            print(Fore.RED + "[-] Gateway not found. Cannot scan.")
+        if gw == "Unknown":
+            print(Fore.RED + "[-] Gateway not found. Are you connected to Wi-Fi?")
             return
 
-        subnet = ".".join(gw.split('.')[:-1]) + "."
+        try:
+            # Fix: Ensure we can parse the IP correctly to get the subnet
+            parts = gw.split('.')
+            if len(parts) != 4:
+                print(Fore.RED + f"[-] Invalid Gateway IP format: {gw}")
+                return
+            subnet = ".".join(parts[:-1]) + "."
+        except Exception as e:
+            print(Fore.RED + f"[-] Error calculating subnet: {e}")
+            return
+
         active_devices = []
+        lock = threading.Lock() # Fix: Prevents text scrambling
 
         def ping_host(ip):
             try:
@@ -187,21 +201,24 @@ class NetworkTool:
                     stdout=subprocess.DEVNULL, 
                     stderr=subprocess.DEVNULL
                 )
-                active_devices.append(ip)
-                sys.stdout.write(Fore.GREEN + ".")
-                sys.stdout.flush()
+                with lock:
+                    active_devices.append(ip)
+                    sys.stdout.write(Fore.GREEN + ".")
+                    sys.stdout.flush()
             except:
                 pass
 
         threads = []
         print(Fore.CYAN + f"Scanning {subnet}1 to {subnet}50 ...")
+        
+        # Reduced range/speed slightly to prevent crashes on older phones
         for i in range(1, 51): 
             ip = f"{subnet}{i}"
             if ip == gw: continue 
             t = threading.Thread(target=ping_host, args=(ip,))
             t.start()
             threads.append(t)
-            time.sleep(0.01)
+            time.sleep(0.02) # Increased delay slightly to prevent thread overload
 
         for t in threads:
             t.join()
@@ -223,7 +240,7 @@ class NetworkTool:
         if not target:
             self.get_gateway_ip()
             target = self.gateway_ip
-            if target in ["Unknown", "Error", "Not Found"]:
+            if target == "Unknown":
                 print(Fore.RED + "[-] Gateway not found. Please enter IP manually.")
                 return
 
@@ -237,15 +254,17 @@ class NetworkTool:
         }
         
         open_ports = []
+        lock = threading.Lock()
 
         def check_port(port, service_name):
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.settimeout(0.5) # Fast timeout
+                s.settimeout(1.0) # Increased timeout slightly for stability
                 result = s.connect_ex((target, port))
                 if result == 0:
-                    open_ports.append(f"{port} ({service_name})")
-                    sys.stdout.write(Fore.GREEN + "!")
+                    with lock:
+                        open_ports.append(f"{port} ({service_name})")
+                        sys.stdout.write(Fore.GREEN + "!")
                 else:
                     sys.stdout.write(Fore.RED + ".")
                 sys.stdout.flush()
@@ -258,7 +277,6 @@ class NetworkTool:
             t = threading.Thread(target=check_port, args=(port, service))
             t.start()
             threads.append(t)
-            # Small delay to keep thread launch orderly
             time.sleep(0.05) 
 
         for t in threads:
@@ -394,7 +412,7 @@ class NetworkTool:
                         print(Fore.WHITE + "1. Live Stats (Ping)")
                         print(Fore.WHITE + "2. Network Info (ISP & Admin IP)")
                         print(Fore.WHITE + "3. Device Scanner")
-                        print(Fore.WHITE + "4. Active Port Scanner (Byakugan)") # New
+                        print(Fore.WHITE + "4. Active Port Scanner (Byakugan)") 
                         print(Fore.WHITE + "5. Packet Sender")
                         print(Fore.WHITE + "6. Router Logs")
                         print(Fore.WHITE + "7. Hacker Mode (Toy)")
@@ -406,7 +424,7 @@ class NetworkTool:
                         if choice == "1": self.display_stats()
                         elif choice == "2": self.show_network_info()
                         elif choice == "3": self.scan_devices()
-                        elif choice == "4": self.scan_ports() # New Feature
+                        elif choice == "4": self.scan_ports() 
                         elif choice == "5": self.packet_sender()
                         elif choice == "6": self.fetch_router_logs()
                         elif choice == "7": self.hacker_mode()
